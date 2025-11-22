@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  orcaslicer-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orcaslicer-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - orcaslicer-data:/data
+    environment:
+      - LOG_LEVEL=INFO
+      - LOG_JSON=true
+      - ORCA_CLI_PATH=/app/squashfs-root/AppRun
+      - DATA_DIR=/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  orcaslicer-data:
+    driver: local
