@@ -8,11 +8,22 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3-pip \
-    wget \
-    fuse \
-    libfuse2 \
+    curl \
     libgl1 \
+    libegl1 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libwebkit2gtk-4.0-37 \
+    libjavascriptcoregtk-4.0-18 \
+    libgstreamer1.0-0 \
+    libgstreamer-plugins-base1.0-0 \
     libglib2.0-0 \
+    libdbus-1-3 \
+    libwayland-client0 \
+    libwayland-egl1 \
     libxrender1 \
     libxrandr2 \
     libxinerama1 \
@@ -20,24 +31,26 @@ RUN apt-get update && apt-get install -y \
     libxcursor1 \
     libfontconfig1 \
     libglu1-mesa \
+    libxkbcommon0 \
+    libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
 
 # Download and install OrcaSlicer
-# Note: Update this URL to the latest OrcaSlicer AppImage release
-ARG ORCA_VERSION=v2.0.0
-RUN wget -q "https://github.com/SoftFever/OrcaSlicer/releases/download/${ORCA_VERSION}/OrcaSlicer_Linux_${ORCA_VERSION}.AppImage" -O OrcaSlicer.AppImage || \
-    echo "Warning: OrcaSlicer download may fail - please update the URL in Dockerfile"
+ARG ORCA_VERSION=2.3.1
 
-# Extract AppImage
-RUN chmod +x OrcaSlicer.AppImage && \
-    ./OrcaSlicer.AppImage --appimage-extract || \
-    echo "AppImage extraction completed"
+# Download OrcaSlicer AppImage with timeout
+RUN curl --max-time 300 --connect-timeout 60 -L \
+    "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage" \
+    -o /usr/local/bin/orcaslicer \
+    && chmod +x /usr/local/bin/orcaslicer \
+    && echo "✓ OrcaSlicer v${ORCA_VERSION} installed successfully"
 
-# Make AppRun executable
-RUN chmod +x /app/squashfs-root/AppRun || true
+# Verify installation
+RUN ls -lh /usr/local/bin/orcaslicer \
+    && /usr/local/bin/orcaslicer --version || echo "Note: Version check may not work without display"
 
 # Copy application code
 COPY requirements.txt .
@@ -47,17 +60,6 @@ COPY src/ ./src/
 
 # Create data directory
 RUN mkdir -p /data
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV ORCA_CLI_PATH=/app/squashfs-root/AppRun
-ENV ORCA_DATADIR=/app/orca-config
-ENV DATA_DIR=/data
-ENV LOG_LEVEL=INFO
-ENV LOG_JSON=true
-
-# Expose API port
-EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # OrcaSlicer settings
-    orca_cli_path: str = os.getenv("ORCA_CLI_PATH", "/app/squashfs-root/AppRun")
+    orca_cli_path: str = os.getenv("ORCA_CLI_PATH", "/usr/local/bin/orcaslicer")
     orca_datadir: str = os.getenv("ORCA_DATADIR", "/app/orca-config")
 
     # Storage settings

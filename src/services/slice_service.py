@@ -180,13 +180,34 @@ class SliceService:
 
                 stdout, stderr = await process.communicate()
 
+                stdout_text = stdout.decode() if stdout else ""
+                stderr_text = stderr.decode() if stderr else ""
+
                 if process.returncode != 0:
-                    error_msg = stderr.decode() if stderr else "Unknown error"
-                    logger.error(f"OrcaSlicer failed: {error_msg}")
-                    raise SlicingError(
-                        f"OrcaSlicer exited with code {process.returncode}",
-                        details={"stderr": error_msg, "stdout": stdout.decode() if stdout else ""},
+                    logger.error(
+                        f"OrcaSlicer failed with exit code {process.returncode}",
+                        extra={
+                            "job_id": job_id,
+                            "exit_code": process.returncode,
+                            "command": ' '.join(cmd),
+                            "stdout": stdout_text[:500],
+                            "stderr": stderr_text[:500],
+                        }
                     )
+                    raise SlicingError(
+                        f"OrcaSlicer exited with code {process.returncode}: {stderr_text[:200]}",
+                        details={
+                            "exit_code": process.returncode,
+                            "stderr": stderr_text,
+                            "stdout": stdout_text,
+                            "command": ' '.join(cmd),
+                        },
+                    )
+
+                logger.info(f"OrcaSlicer completed successfully", extra={
+                    "job_id": job_id,
+                    "stdout": stdout_text[:200] if stdout_text else "No output",
+                })
 
                 # Parse outputs and generate metadata
                 metadata = await self._generate_metadata(output_dir, job.output_options or {})
@@ -235,10 +256,13 @@ class SliceService:
         """Build OrcaSlicer CLI command."""
         cmd = [settings.orca_cli_path]
 
+        # Add headless/CLI mode flags
+        cmd.extend(["--slice"])
+
         # Add model input
         cmd.extend([model_path])
 
-        # Output directory
+        # Output G-code
         cmd.extend(["--export-gcode"])
         cmd.extend(["-o", str(output_dir / "output.gcode")])
 
@@ -246,14 +270,18 @@ class SliceService:
         if output_options.get("project_3mf", False):
             cmd.extend(["--export-3mf", str(output_dir / "project.3mf")])
 
-        # Note: OrcaSlicer CLI command-line interface varies by version
-        # This is a simplified example - actual implementation may need
-        # to write config files or use different CLI options
+        # Set data directory
+        if settings.orca_datadir:
+            cmd.extend(["--datadir", settings.orca_datadir])
 
-        # Add profile settings via config (simplified approach)
-        # In production, you would:
-        # 1. Create a temporary config with profile settings + overrides
-        # 2. Pass it to OrcaSlicer via appropriate flags
+        # Note: OrcaSlicer CLI may need additional configuration
+        # For now, using basic flags. Profile settings and overrides
+        # would typically be passed via:
+        # - Config files in datadir
+        # - --load settings flags
+        # - Individual parameter flags
+
+        logger.debug(f"Built OrcaSlicer command: {' '.join(cmd)}")
 
         return cmd
 

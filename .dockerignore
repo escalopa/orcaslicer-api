@@ -14,9 +14,12 @@ build
 .venv
 venv
 *.md
+!README.md
 LICENSE
-.dockerignore
 docker-compose.yml
 data/
 *.db
 *.sqlite
+tests/
+*.sh
+Makefile

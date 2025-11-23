@@ -64,13 +64,32 @@ graph TD
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/orcaslicer-api.git
+git clone https://github.com/escalopa/orcaslicer-api.git
 cd orcaslicer-api
 ```
 
 2. **Build the Docker image**
 
+The Dockerfile automatically downloads OrcaSlicer during build:
+
 ```bash
+docker build -t orcaslicer-api .
+```
+
+To use a specific OrcaSlicer version:
+
+```bash
+docker build --build-arg ORCA_VERSION=2.2.0 -t orcaslicer-api .
+```
+
+**If download fails** (due to URL changes), manually download and place in the directory:
+
+```bash
+# Download from releases page
+wget https://github.com/SoftFever/OrcaSlicer/releases/download/v2.2.0/OrcaSlicer_Linux_V2.2.0.AppImage \
+  -O OrcaSlicer.AppImage
+
+# Build (will use the local file)
 docker build -t orcaslicer-api .
 ```
 
@@ -85,6 +104,8 @@ docker-compose up -d
 ```bash
 curl http://localhost:8000/health
 ```
+
+**⚠️ Troubleshooting:** If you get "OrcaSlicer CLI not found" error, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ### Access the API
 
