@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
-    python3.11 \
+    python3 \
     python3-pip \
     curl \
     libgl1 \
@@ -24,15 +24,6 @@ RUN apt-get update && apt-get install -y \
     libdbus-1-3 \
     libwayland-client0 \
     libwayland-egl1 \
-    libxrender1 \
-    libxrandr2 \
-    libxinerama1 \
-    libxi6 \
-    libxcursor1 \
-    libfontconfig1 \
-    libglu1-mesa \
-    libxkbcommon0 \
-    libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -40,17 +31,10 @@ WORKDIR /app
 
 # Download and install OrcaSlicer
 ARG ORCA_VERSION=2.3.1
-
-# Download OrcaSlicer AppImage with timeout
-RUN curl --max-time 300 --connect-timeout 60 -L \
-    "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage" \
-    -o /usr/local/bin/orcaslicer \
-    && chmod +x /usr/local/bin/orcaslicer \
-    && echo "✓ OrcaSlicer v${ORCA_VERSION} installed successfully"
-
-# Verify installation
-RUN ls -lh /usr/local/bin/orcaslicer \
-    && /usr/local/bin/orcaslicer --version || echo "Note: Version check may not work without display"
+RUN curl -L https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage -o OrcaSlicer.AppImage \
+    && chmod +x OrcaSlicer.AppImage \
+    && ./OrcaSlicer.AppImage --appimage-extract \
+    && ln -s /app/squashfs-root/AppRun /usr/local/bin/orcaslicer
 
 # Copy application code
 COPY requirements.txt .
