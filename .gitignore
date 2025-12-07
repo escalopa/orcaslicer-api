@@ -75,3 +75,6 @@ models/
 tmp/
 temp/
 *.tmp
+
+# Local AppImage
+*.AppImage

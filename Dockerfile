@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
+    squashfs-tools \
+    libfuse2 \
     libgl1 \
     libegl1 \
     libgtk-3-0 \
@@ -31,10 +33,21 @@ WORKDIR /app
 
 # Download and install OrcaSlicer
 ARG ORCA_VERSION=2.3.1
-RUN curl -L https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage -o OrcaSlicer.AppImage \
-    && chmod +x OrcaSlicer.AppImage \
-    && ./OrcaSlicer.AppImage --appimage-extract \
-    && ln -s /app/squashfs-root/AppRun /usr/local/bin/orcaslicer
+
+RUN curl -L https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage -o OrcaSlicer.AppImage
+RUN curl -o kldzj.AppImage -L "https://github.com/kldzj/orca-slicer-arm64/releases/download/v${ORCA_VERSION}-arm64/OrcaSlicer-${ORCA_VERSION}-arm64-linux.AppImage"
+
+RUN chmod +x OrcaSlicer.AppImage
+RUN chmod +x kldzj.AppImage
+
+COPY OrcaSlicer.AppImage ./LocalOrcaSlicer.AppImage
+COPY OrcaSlicer230.AppImage ./OrcaSlicer230.AppImage
+
+RUN chmod +x LocalOrcaSlicer.AppImage
+RUN chmod +x OrcaSlicer230.AppImage
+
+# RUN ./OrcaSlicer.AppImage --appimage-extract
+# RUN ln -s /app/squashfs-root/AppRun /usr/local/bin/orcaslicer
 
 # Copy application code
 COPY requirements.txt .
