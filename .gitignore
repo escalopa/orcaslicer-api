@@ -78,3 +78,4 @@ temp/
 
 # Local AppImage
 *.AppImage
+./OrcaSlicer/*

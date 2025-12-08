@@ -218,8 +218,17 @@ class SliceService:
                 job.finished_at = datetime.utcnow()
                 job.progress_percent = 100
 
+                # Find generated gcode file (OrcaSlicer names it based on input file)
                 if (job.output_options or {}).get("gcode", True):
-                    job.gcode_path = str(output_dir / "output.gcode")
+                    gcode_files = list(output_dir.glob("*.gcode"))
+                    if gcode_files:
+                        # Rename to standardized name for easier access
+                        gcode_output = output_dir / "output.gcode"
+                        gcode_files[0].rename(gcode_output)
+                        job.gcode_path = str(gcode_output)
+                    else:
+                        logger.warning(f"No gcode file found in {output_dir}")
+
                 if (job.output_options or {}).get("project_3mf", False):
                     job.project_3mf_path = str(output_dir / "project.3mf")
 
@@ -256,34 +265,65 @@ class SliceService:
         """Build OrcaSlicer CLI command."""
         cmd = [settings.orca_cli_path]
 
-        # Add headless/CLI mode flags
-        cmd.extend(["--slice"])
+        # Set data directory first if provided
+        if settings.orca_datadir:
+            cmd.extend(["--datadir", settings.orca_datadir])
 
-        # Add model input
-        cmd.extend([model_path])
+        # Set output directory
+        cmd.extend(["--outputdir", str(output_dir)])
 
-        # Output G-code
-        cmd.extend(["--export-gcode"])
-        cmd.extend(["-o", str(output_dir / "output.gcode")])
+        # Create settings file with profile and overrides
+        settings_file = await self._create_settings_file(work_dir, profile, overrides)
+        if settings_file:
+            cmd.extend(["--load-settings", str(settings_file)])
+
+        # Add slice flag (0 = slice all plates)
+        cmd.extend(["--slice", "0"])
 
         # Export 3MF if requested
         if output_options.get("project_3mf", False):
             cmd.extend(["--export-3mf", str(output_dir / "project.3mf")])
 
-        # Set data directory
-        if settings.orca_datadir:
-            cmd.extend(["--datadir", settings.orca_datadir])
-
-        # Note: OrcaSlicer CLI may need additional configuration
-        # For now, using basic flags. Profile settings and overrides
-        # would typically be passed via:
-        # - Config files in datadir
-        # - --load settings flags
-        # - Individual parameter flags
+        # Add model input (must be last or near last)
+        cmd.append(model_path)
 
         logger.debug(f"Built OrcaSlicer command: {' '.join(cmd)}")
 
         return cmd
+
+    async def _create_settings_file(
+        self,
+        work_dir: Path,
+        profile: Profile,
+        overrides: Dict[str, Any],
+    ) -> Optional[Path]:
+        """Create a settings JSON file for OrcaSlicer."""
+        settings_data = {}
+
+        # Add profile settings
+        if profile.settings_overrides:
+            settings_data.update(profile.settings_overrides)
+
+        # Apply job-specific overrides
+        if overrides:
+            settings_data.update(overrides)
+
+        # Ensure layer_gcode has G92 E0 to fix the relative extruder error
+        if "layer_gcode" not in settings_data:
+            settings_data["layer_gcode"] = "G92 E0"
+        elif "G92 E0" not in settings_data["layer_gcode"]:
+            settings_data["layer_gcode"] = settings_data["layer_gcode"] + "\nG92 E0"
+
+        if not settings_data:
+            return None
+
+        # Write settings to file
+        settings_file = work_dir / "settings.json"
+        with open(settings_file, "w") as f:
+            json.dump(settings_data, f, indent=2)
+
+        logger.debug(f"Created settings file: {settings_file}")
+        return settings_file
 
     async def _generate_metadata(
         self,

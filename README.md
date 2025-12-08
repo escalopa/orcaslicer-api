@@ -82,17 +82,6 @@ To use a specific OrcaSlicer version:
 docker build --build-arg ORCA_VERSION=2.2.0 -t orcaslicer-api .
 ```
 
-**If download fails** (due to URL changes), manually download and place in the directory:
-
-```bash
-# Download from releases page
-wget https://github.com/SoftFever/OrcaSlicer/releases/download/v2.2.0/OrcaSlicer_Linux_V2.2.0.AppImage \
-  -O OrcaSlicer.AppImage
-
-# Build (will use the local file)
-docker build -t orcaslicer-api .
-```
-
 3. **Run with Docker Compose**
 
 ```bash
@@ -104,8 +93,6 @@ docker-compose up -d
 ```bash
 curl http://localhost:8000/health
 ```
-
-**⚠️ Troubleshooting:** If you get "OrcaSlicer CLI not found" error, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ### Access the API
 
@@ -130,7 +117,7 @@ The typical workflow involves:
 
 ```bash
 curl -X POST http://localhost:8000/models \
-  -F "file=@bracket.stl"
+  -F "file=@models/bracket.stl"
 ```
 
 Response:
