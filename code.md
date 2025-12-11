@@ -15,10 +15,12 @@ PROFILE_ID=$(curl -X POST http://localhost:8000/profiles \
     "process_id": "0.20mm Quality @Ginger",
     "filament_id": "Ginger PLA White",
     "settings_overrides": {
-      "layer_height": 0.2,
-      "infill_density": 25,
-      "support_enable": true,
-      "layer_gcode": "G92 E0"
+      "layer_height": "0.2",
+      "sparse_infill_density": "25%",
+      "enable_support": "1",
+      "layer_gcode": "G92 E0",
+      "initial_layer_print_height": "0.2",
+      "line_width": "0.4"
     }
   }' | jq -r '.id')
 

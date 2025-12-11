@@ -266,16 +266,18 @@ class SliceService:
         cmd = [settings.orca_cli_path]
 
         # Set data directory first if provided
+        # This directory should contain machine/, process/, and filament/ subdirectories with profile JSONs
         if settings.orca_datadir:
             cmd.extend(["--datadir", settings.orca_datadir])
 
         # Set output directory
         cmd.extend(["--outputdir", str(output_dir)])
 
-        # Create settings file with profile and overrides
-        settings_file = await self._create_settings_file(work_dir, profile, overrides)
-        if settings_file:
-            cmd.extend(["--load-settings", str(settings_file)])
+        # Create settings file with profile and overrides if there are any settings
+        if profile.settings_overrides or overrides:
+            settings_file = await self._create_settings_file(work_dir, profile, overrides)
+            if settings_file:
+                cmd.extend(["--load-settings", str(settings_file)])
 
         # Add slice flag (0 = slice all plates)
         cmd.extend(["--slice", "0"])
@@ -297,8 +299,21 @@ class SliceService:
         profile: Profile,
         overrides: Dict[str, Any],
     ) -> Optional[Path]:
-        """Create a settings JSON file for OrcaSlicer."""
-        settings_data = {}
+        """Create a settings JSON file for OrcaSlicer.
+
+        OrcaSlicer requires specific metadata fields in the JSON:
+        - type: "machine", "process", or "filament"
+        - name: preset name
+        - from: "system", "User", or "user"
+        - version: version string (optional)
+        """
+        # Start with OrcaSlicer required metadata
+        settings_data = {
+            "type": "process",  # Default to process settings
+            "name": profile.name or "API Generated Profile",
+            "from": "user",  # Mark as user-generated
+            "version": "1.0.0",
+        }
 
         # Add profile settings
         if profile.settings_overrides:
@@ -308,22 +323,94 @@ class SliceService:
         if overrides:
             settings_data.update(overrides)
 
+        # Convert settings to OrcaSlicer expected types
+        settings_data = self._convert_settings_types(settings_data)
+
         # Ensure layer_gcode has G92 E0 to fix the relative extruder error
         if "layer_gcode" not in settings_data:
             settings_data["layer_gcode"] = "G92 E0"
-        elif "G92 E0" not in settings_data["layer_gcode"]:
+        elif isinstance(settings_data["layer_gcode"], str) and "G92 E0" not in settings_data["layer_gcode"]:
             settings_data["layer_gcode"] = settings_data["layer_gcode"] + "\nG92 E0"
-
-        if not settings_data:
-            return None
 
         # Write settings to file
         settings_file = work_dir / "settings.json"
         with open(settings_file, "w") as f:
             json.dump(settings_data, f, indent=2)
 
-        logger.debug(f"Created settings file: {settings_file}")
+        logger.debug(f"Created settings file with metadata: type={settings_data.get('type')}, name={settings_data.get('name')}, from={settings_data.get('from')}")
         return settings_file
+
+    def _convert_settings_types(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert settings values to OrcaSlicer expected types.
+        
+        OrcaSlicer expects specific string formats for many settings:
+        - Numeric values like layer_height should be strings (e.g., "0.2")
+        - Percent values should have % suffix (e.g., "25%")
+        - Boolean values should be "0" or "1" strings
+        """
+        result = settings.copy()
+        
+        # Settings that should be string representations of numbers
+        numeric_string_settings = {
+            "layer_height",
+            "initial_layer_print_height",
+            "line_width",
+            "inner_wall_line_width",
+            "outer_wall_line_width",
+            "top_surface_line_width",
+            "sparse_infill_line_width",
+            "support_line_width",
+            "first_layer_extrusion_width",
+            "min_layer_height",
+            "max_layer_height",
+        }
+        
+        # Settings that should be percent strings (e.g., "25%")
+        percent_settings = {
+            "sparse_infill_density",
+            "infill_density",  # Alias - will be converted to sparse_infill_density
+            "internal_bridge_density",
+            "skin_infill_density",
+            "skeleton_infill_density",
+        }
+        
+        # Settings that should be "0" or "1" strings for booleans
+        bool_string_settings = {
+            "enable_support",
+            "detect_thin_wall",
+            "only_one_wall_top",
+            "spiral_mode",
+            "overhang_reverse",
+        }
+        
+        # Handle infill_density -> sparse_infill_density alias
+        if "infill_density" in result and "sparse_infill_density" not in result:
+            result["sparse_infill_density"] = result.pop("infill_density")
+        
+        for key, value in list(result.items()):
+            if value is None:
+                continue
+                
+            # Convert numeric values to strings for specific settings
+            if key in numeric_string_settings:
+                if isinstance(value, (int, float)):
+                    result[key] = str(value)
+            
+            # Convert percent values - add % if missing
+            elif key in percent_settings:
+                if isinstance(value, (int, float)):
+                    result[key] = f"{value}%"
+                elif isinstance(value, str) and not value.endswith("%"):
+                    result[key] = f"{value}%"
+            
+            # Convert booleans to "0" or "1" strings
+            elif key in bool_string_settings:
+                if isinstance(value, bool):
+                    result[key] = "1" if value else "0"
+                elif isinstance(value, int):
+                    result[key] = str(value)
+        
+        return result
 
     async def _generate_metadata(
         self,
