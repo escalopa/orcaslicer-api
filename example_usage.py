@@ -157,13 +157,31 @@ def main():
     if job.get("output") and job["output"].get("metadata"):
         metadata = job["output"]["metadata"]
         print(f"\n📊 Print Metadata:")
-        print(f"   Estimated time: {metadata.get('estimated_print_time_seconds', 0)} seconds")
-        print(f"   Filament used: {metadata.get('filament_used_mm', 0):.1f} mm")
-        print(f"   Filament weight: {metadata.get('filament_used_g', 0):.1f} g")
-        print(f"   Layer count: {metadata.get('layer_count', 0)}")
-        if metadata.get('bounding_box_mm'):
-            bbox = metadata['bounding_box_mm']
-            print(f"   Bounding box: {bbox['x']} x {bbox['y']} x {bbox['z']} mm")
+
+        # Print times
+        if metadata.get('estimated_print_time_seconds'):
+            est_time = metadata['estimated_print_time_seconds']
+            print(f"   Total print time: {est_time} seconds ({est_time // 60} min)")
+        if metadata.get('model_print_time_seconds'):
+            model_time = metadata['model_print_time_seconds']
+            print(f"   Model print time: {model_time} seconds ({model_time // 60} min)")
+        if metadata.get('first_layer_print_time_seconds'):
+            first_layer = metadata['first_layer_print_time_seconds']
+            print(f"   First layer time: {first_layer} seconds ({first_layer // 60} min)")
+
+        # Filament info
+        if metadata.get('filament_used_mm'):
+            print(f"   Filament length: {metadata['filament_used_mm']:.1f} mm ({metadata['filament_used_mm']/1000:.2f} m)")
+        if metadata.get('filament_used_g'):
+            print(f"   Filament weight: {metadata['filament_used_g']:.1f} g")
+        if metadata.get('filament_type'):
+            print(f"   Filament type: {metadata['filament_type']}")
+
+        # Layer and dimensions
+        if metadata.get('layer_count'):
+            print(f"   Layer count: {metadata['layer_count']}")
+        if metadata.get('bounding_box_mm') and metadata['bounding_box_mm'].get('z'):
+            print(f"   Model height: {metadata['bounding_box_mm']['z']:.2f} mm")
 
     print("\n✅ Example workflow completed successfully!")
 

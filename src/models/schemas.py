@@ -116,8 +116,11 @@ class SliceMetadata(BaseModel):
     """Slice output metadata."""
 
     estimated_print_time_seconds: Optional[int] = None
+    model_print_time_seconds: Optional[int] = None
+    first_layer_print_time_seconds: Optional[int] = None
     filament_used_mm: Optional[float] = None
     filament_used_g: Optional[float] = None
+    filament_type: Optional[str] = None
     layer_count: Optional[int] = None
     bounding_box_mm: Optional[BoundingBox] = None
 

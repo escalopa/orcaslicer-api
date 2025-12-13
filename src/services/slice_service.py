@@ -2,9 +2,13 @@
 
 import asyncio
 import json
+import math
+import re
 import secrets
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -342,14 +346,14 @@ class SliceService:
 
     def _convert_settings_types(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Convert settings values to OrcaSlicer expected types.
-        
+
         OrcaSlicer expects specific string formats for many settings:
         - Numeric values like layer_height should be strings (e.g., "0.2")
         - Percent values should have % suffix (e.g., "25%")
         - Boolean values should be "0" or "1" strings
         """
         result = settings.copy()
-        
+
         # Settings that should be string representations of numbers
         numeric_string_settings = {
             "layer_height",
@@ -364,7 +368,7 @@ class SliceService:
             "min_layer_height",
             "max_layer_height",
         }
-        
+
         # Settings that should be percent strings (e.g., "25%")
         percent_settings = {
             "sparse_infill_density",
@@ -373,7 +377,7 @@ class SliceService:
             "skin_infill_density",
             "skeleton_infill_density",
         }
-        
+
         # Settings that should be "0" or "1" strings for booleans
         bool_string_settings = {
             "enable_support",
@@ -382,34 +386,34 @@ class SliceService:
             "spiral_mode",
             "overhang_reverse",
         }
-        
+
         # Handle infill_density -> sparse_infill_density alias
         if "infill_density" in result and "sparse_infill_density" not in result:
             result["sparse_infill_density"] = result.pop("infill_density")
-        
+
         for key, value in list(result.items()):
             if value is None:
                 continue
-                
+
             # Convert numeric values to strings for specific settings
             if key in numeric_string_settings:
                 if isinstance(value, (int, float)):
                     result[key] = str(value)
-            
+
             # Convert percent values - add % if missing
             elif key in percent_settings:
                 if isinstance(value, (int, float)):
                     result[key] = f"{value}%"
                 elif isinstance(value, str) and not value.endswith("%"):
                     result[key] = f"{value}%"
-            
+
             # Convert booleans to "0" or "1" strings
             elif key in bool_string_settings:
                 if isinstance(value, bool):
                     result[key] = "1" if value else "0"
                 elif isinstance(value, int):
                     result[key] = str(value)
-        
+
         return result
 
     async def _generate_metadata(
@@ -417,26 +421,192 @@ class SliceService:
         output_dir: Path,
         output_options: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Generate metadata from slice outputs."""
-        # This is a stub implementation
-        # In production, you would parse:
-        # - G-code comments for time/filament estimates
-        # - 3MF project data
-        # - OrcaSlicer's JSON export (if available)
+        """Generate metadata from slice outputs.
 
-        metadata = {
-            "estimated_print_time_seconds": 5400,  # Stub: 90 minutes
-            "filament_used_mm": 13456.7,  # Stub
-            "filament_used_g": 39.2,  # Stub
-            "layer_count": 260,  # Stub
-            "bounding_box_mm": {
-                "x": 120.0,
-                "y": 80.0,
-                "z": 35.0,
-            },
-        }
+        Extracts metadata from:
+        - G-code file: print time, layer count, dimensions
+        - 3MF file (if available): filament usage data from embedded XML
+        """
+        metadata: Dict[str, Any] = {}
+
+        try:
+            # Find the gcode file
+            gcode_file = output_dir / "output.gcode"
+            if not gcode_file.exists():
+                # Try to find any gcode file
+                gcode_files = list(output_dir.glob("*.gcode"))
+                if gcode_files:
+                    gcode_file = gcode_files[0]
+                else:
+                    logger.warning(f"No gcode file found in {output_dir}")
+                    return metadata
+
+            # Parse gcode metadata
+            gcode_metadata = await self._parse_gcode_metadata(gcode_file)
+            metadata.update(gcode_metadata)
+
+            # If 3MF was generated, extract filament data from it
+            project_3mf = output_dir / "project.3mf"
+            if project_3mf.exists():
+                filament_metadata = await self._parse_3mf_metadata(project_3mf, output_dir)
+                metadata.update(filament_metadata)
+
+            logger.info(f"Extracted metadata: {metadata}")
+
+        except Exception as e:
+            logger.error(f"Failed to generate metadata: {e}", exc_info=True)
 
         return metadata
+
+    async def _parse_gcode_metadata(self, gcode_file: Path) -> Dict[str, Any]:
+        """Parse metadata from gcode file.
+
+        Extracts:
+        - Print times (total, model, first layer)
+        - Max Z height
+        - Layer count
+        """
+        metadata: Dict[str, Any] = {}
+
+        try:
+            with open(gcode_file, 'r', encoding='utf-8') as f:
+                gcode_content = f.read()
+
+            # Extract print times
+            # Format: "; total estimated time: 1h 16m 56s"
+            total_time_match = re.search(r"total estimated time:\s+([0-9hms\s]+)", gcode_content)
+            if total_time_match:
+                total_time_str = total_time_match.group(1).strip()
+                metadata["estimated_print_time_seconds"] = self._time_string_to_seconds(total_time_str)
+
+            # Extract model printing time
+            # Format: "; model printing time: 1h 15m 23s ;"
+            model_time_match = re.search(r"model printing time:\s+([0-9hms\s]+);", gcode_content)
+            if model_time_match:
+                model_time_str = model_time_match.group(1).strip()
+                metadata["model_print_time_seconds"] = self._time_string_to_seconds(model_time_str)
+
+            # Extract first layer printing time
+            # Format: "; first layer printing time = 4m 23s"
+            first_layer_time_match = re.search(r"first layer printing time.*?=\s+([0-9hms\s]+)", gcode_content)
+            if first_layer_time_match:
+                first_layer_time_str = first_layer_time_match.group(1).strip()
+                metadata["first_layer_print_time_seconds"] = self._time_string_to_seconds(first_layer_time_str)
+
+            # Extract max Z height
+            # Format: "; max_z_height: 35.4"
+            max_z_match = re.search(r"max_z_height:\s+([0-9.]+)", gcode_content)
+            if max_z_match:
+                max_z = float(max_z_match.group(1))
+                metadata["bounding_box_mm"] = {"z": max_z}
+
+            # Count layers by counting layer change comments
+            # OrcaSlicer uses "; CHANGE_LAYER" or similar
+            layer_changes = re.findall(r";\s*CHANGE_LAYER", gcode_content)
+            if layer_changes:
+                metadata["layer_count"] = len(layer_changes)
+            else:
+                # Alternative: count "; layer" comments
+                layer_comments = re.findall(r";\s*layer\s+\d+", gcode_content, re.IGNORECASE)
+                if layer_comments:
+                    metadata["layer_count"] = len(layer_comments)
+
+            logger.debug(f"Extracted gcode metadata: {metadata}")
+
+        except Exception as e:
+            logger.error(f"Failed to parse gcode metadata: {e}", exc_info=True)
+
+        return metadata
+
+    async def _parse_3mf_metadata(self, project_3mf: Path, output_dir: Path) -> Dict[str, Any]:
+        """Parse filament metadata from 3MF file.
+
+        The 3MF file is actually a zip archive containing:
+        - Metadata/slice_info.config (XML with filament data)
+        """
+        metadata: Dict[str, Any] = {}
+
+        try:
+            # Create a temporary directory for extraction
+            temp_extract_dir = output_dir / "temp_3mf_extract"
+            temp_extract_dir.mkdir(exist_ok=True)
+
+            # Extract the 3MF (which is actually a zip file)
+            with zipfile.ZipFile(project_3mf, 'r') as zip_ref:
+                zip_ref.extractall(temp_extract_dir)
+
+            # Parse the slice_info.config XML file
+            slice_info_path = temp_extract_dir / "Metadata" / "slice_info.config"
+            if slice_info_path.exists():
+                with open(slice_info_path, 'r', encoding='utf-8') as f:
+                    xml_content = f.read()
+
+                # Parse XML
+                root = ET.fromstring(xml_content)
+
+                # Extract filament info from plate/filament element
+                plate = root.find("plate")
+                if plate is not None:
+                    filament = plate.find("filament")
+                    if filament is not None:
+                        # Extract filament usage in meters
+                        used_m = filament.attrib.get("used_m")
+                        if used_m:
+                            metadata["filament_used_mm"] = float(used_m) * 1000  # Convert to mm
+
+                        # Extract filament usage in grams
+                        used_g = filament.attrib.get("used_g")
+                        if used_g:
+                            metadata["filament_used_g"] = float(used_g)
+
+                        # Optionally extract filament type
+                        filament_type = filament.attrib.get("type")
+                        if filament_type:
+                            metadata["filament_type"] = filament_type
+
+                logger.debug(f"Extracted 3MF metadata: {metadata}")
+
+            # Cleanup temp directory
+            shutil.rmtree(temp_extract_dir, ignore_errors=True)
+
+        except Exception as e:
+            logger.error(f"Failed to parse 3MF metadata: {e}", exc_info=True)
+            # Cleanup on error
+            temp_extract_dir = output_dir / "temp_3mf_extract"
+            if temp_extract_dir.exists():
+                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+
+        return metadata
+
+    def _time_string_to_seconds(self, time_str: str) -> int:
+        """Convert time string like '1h 16m 56s' to total seconds.
+
+        Args:
+            time_str: Time string in format like "1h 16m 56s", "23m 45s", or "56s"
+
+        Returns:
+            Total time in seconds (rounded up)
+        """
+        h = m = s = 0
+
+        # Extract hours
+        h_match = re.search(r'(\d+)h', time_str)
+        if h_match:
+            h = int(h_match.group(1))
+
+        # Extract minutes
+        m_match = re.search(r'(\d+)m', time_str)
+        if m_match:
+            m = int(m_match.group(1))
+
+        # Extract seconds
+        s_match = re.search(r'(\d+)s', time_str)
+        if s_match:
+            s = int(s_match.group(1))
+
+        # Calculate total seconds (round up if there are any seconds)
+        total_seconds = h * 3600 + m * 60 + s
+        return total_seconds
 
 
 slice_service = SliceService()

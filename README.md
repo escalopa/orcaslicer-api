@@ -9,6 +9,7 @@ A production-ready HTTP API wrapper around OrcaSlicer for programmatic 3D model 
 - **Multiple Input Formats** - Support for `.stl`, `.step`, and `.3mf` files
 - **Profile Management** - Create, manage, and override slicing profiles
 - **Flexible Outputs** - Generate G-code, 3MF projects, and detailed metadata
+- **Metadata Extraction** - Auto-parse print time, filament usage, and layer info from outputs
 - **Python Client** - High-level client library for easy integration
 - **Docker-First** - Container-only deployment with Docker Compose support
 - **Async Processing** - Background job processing with status polling
@@ -195,12 +196,13 @@ Response (completed):
     "project_3mf_url": "http://localhost:8000/files/job_9k2z1v/project.3mf",
     "metadata": {
       "estimated_print_time_seconds": 5400,
+      "model_print_time_seconds": 5220,
+      "first_layer_print_time_seconds": 263,
       "filament_used_mm": 13456.7,
       "filament_used_g": 39.2,
+      "filament_type": "PLA",
       "layer_count": 260,
       "bounding_box_mm": {
-        "x": 120.0,
-        "y": 80.0,
         "z": 35.0
       }
     }
@@ -214,6 +216,24 @@ Response (completed):
 curl http://localhost:8000/slice-jobs/job_9k2z1v/gcode \
   -o output.gcode
 ```
+
+### Metadata Extraction
+
+The API automatically extracts metadata from OrcaSlicer outputs:
+
+**From G-code file:**
+- `estimated_print_time_seconds` - Total estimated print time
+- `model_print_time_seconds` - Active printing time (excludes travel, etc.)
+- `first_layer_print_time_seconds` - First layer print duration
+- `layer_count` - Total number of layers
+- `bounding_box_mm.z` - Model height in mm
+
+**From 3MF file** (when `project_3mf: true`):
+- `filament_used_mm` - Filament length in millimeters
+- `filament_used_g` - Filament weight in grams
+- `filament_type` - Material type (e.g., "PLA", "PETG")
+
+The metadata is parsed from OrcaSlicer's embedded comments in the G-code and from the XML configuration in the 3MF archive. This enables accurate cost estimation and print planning.
 
 ## 🐍 Python Client
 
